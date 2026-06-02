@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>统计分析 - HTTP代理缓存服务器</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 220px; background: #1a1a2e; color: #eee; padding: 20px 0;
+            display: flex; flex-direction: column; position: fixed; height: 100vh;
+        }
+        .sidebar h2 { padding: 0 20px 20px; font-size: 18px; border-bottom: 1px solid #333; margin-bottom: 10px; }
+        .sidebar a {
+            display: block; padding: 12px 20px; color: #aaa; text-decoration: none;
+            font-size: 14px; transition: all 0.2s;
+        }
+        .sidebar a:hover, .sidebar a.active { color: #fff; background: #16213e; border-left: 3px solid #4ea8de; }
+        .main { margin-left: 220px; flex: 1; padding: 30px; }
+        h1 { font-size: 24px; margin-bottom: 24px; color: #1a1a2e; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin-bottom: 30px; }
+        .card {
+            background: #fff; border-radius: 8px; padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08); text-align: center;
+        }
+        .card .label { font-size: 13px; color: #888; margin-bottom: 8px; }
+        .card .value { font-size: 28px; font-weight: 700; color: #1a1a2e; }
+        .card .value.green { color: #27ae60; }
+        .card .value.blue { color: #2980b9; }
+        .card .value.orange { color: #e67e22; }
+        .card .value.red { color: #e74c3c; }
+        .section {
+            background: #fff; border-radius: 8px; padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 20px;
+        }
+        .section h3 { font-size: 16px; margin-bottom: 15px; color: #333; border-bottom: 2px solid #4ea8de; padding-bottom: 8px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { background: #f7f8fa; padding: 10px 12px; text-align: left; font-weight: 600; color: #555; border-bottom: 2px solid #e8e8e8; }
+        td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
+        tr:hover { background: #fafbfc; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        .badge-get { background: #cce5ff; color: #004085; }
+        .badge-post { background: #fff3cd; color: #856404; }
+        .url-cell { max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .hit-rate-circle {
+            width: 140px; height: 140px; border-radius: 50%; margin: 0 auto 16px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 32px; font-weight: 700; color: #fff;
+        }
+        .bar-chart { margin: 10px 0; }
+        .bar-row { display: flex; align-items: center; margin-bottom: 8px; }
+        .bar-label { width: 60px; font-size: 13px; color: #555; text-align: right; margin-right: 10px; flex-shrink: 0; }
+        .bar-track { flex: 1; height: 24px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
+        .bar-fill { height: 100%; background: linear-gradient(90deg, #4ea8de, #5b86e5); border-radius: 4px; display: flex; align-items: center; padding-left: 8px; font-size: 12px; color: #fff; min-width: 40px; }
+    </style>
+</head>
+<body>
+<div class="sidebar">
+    <h2>代理服务器管理</h2>
+    <a href="/dashboard/">系统概览</a>
+    <a href="/dashboard/logs">访问日志</a>
+    <a href="/dashboard/stats" class="active">统计分析</a>
+</div>
+<div class="main">
+    <h1>统计分析</h1>
+
+    <!-- 核心指标 -->
+    <div class="cards">
+        <div class="card">
+            <div class="label">总访问次数</div>
+            <div class="value blue">{{ stats.total_requests }}</div>
+        </div>
+        <div class="card">
+            <div class="label">缓存命中</div>
+            <div class="value green">{{ stats.cache_hits }}</div>
+        </div>
+        <div class="card">
+            <div class="label">缓存未命中</div>
+            <div class="value orange">{{ stats.cache_misses }}</div>
+        </div>
+        <div class="card">
+            <div class="label">缓存命中率</div>
+            <div class="value {% if stats.hit_rate >= 50 %}green{% elif stats.hit_rate >= 30 %}orange{% else %}red{% endif %}">{{ stats.hit_rate }}%</div>
+        </div>
+        <div class="card">
+            <div class="label">缓存资源数</div>
+            <div class="value">{{ stats.cached_resources }}</div>
+        </div>
+        <div class="card">
+            <div class="label">缓存总大小</div>
+            <div class="value" style="font-size:18px;">{{ "%.1f"|format(stats.total_cache_size / 1024) if stats.total_cache_size > 0 else 0 }} KB</div>
+        </div>
+    </div>
+
+    <!-- 缓存命中率可视化 -->
+    <div class="section">
+        <h3>缓存命中率</h3>
+        <div style="display:flex; align-items:center; gap:40px; padding:20px;">
+            <div>
+                <div class="hit-rate-circle" style="background: {% if stats.hit_rate >= 50 %}#27ae60{% elif stats.hit_rate >= 30 %}#e67e22{% else %}#e74c3c{% endif %};">
+                    {{ stats.hit_rate }}%
+                </div>
+                <p style="text-align:center; color:#888; font-size:13px;">命中率</p>
+            </div>
+            <div style="flex:1;">
+                <div class="bar-chart">
+                    <div class="bar-row">
+                        <span class="bar-label">命中</span>
+                        <div class="bar-track">
+                            <div class="bar-fill" style="width: {{ stats.hit_rate }}%;">
+                                {{ stats.cache_hits }} 次
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bar-row">
+                        <span class="bar-label">未命中</span>
+                        <div class="bar-track">
+                            <div class="bar-fill" style="width: {{ (100 - stats.hit_rate)|round(1) }}%; background: linear-gradient(90deg, #e67e22, #e74c3c);">
+                                {{ stats.cache_misses }} 次
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 请求方法统计 -->
+    {% if methods %}
+    <div class="section">
+        <h3>请求方法统计</h3>
+        <table>
+            <thead><tr><th>方法</th><th>请求次数</th><th>占比</th></tr></thead>
+            <tbody>
+                {% for m in methods %}
+                <tr>
+                    <td><span class="badge {% if m.method == 'GET' %}badge-get{% else %}badge-post{% endif %}">{{ m.method }}</span></td>
+                    <td>{{ m.count }}</td>
+                    <td>
+                        {% if stats.total_requests > 0 %}
+                        {{ "%.1f"|format(m.count / stats.total_requests * 100) }}%
+                        {% else %}0%{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- 热门资源 -->
+    {% if top_resources %}
+    <div class="section">
+        <h3>热门资源 TOP20</h3>
+        {% if top_resources %}
+        <table>
+            <thead><tr><th>排名</th><th>URL</th><th>访问次数</th></tr></thead>
+            <tbody>
+                {% for r in top_resources %}
+                <tr>
+                    <td>
+                        {% if loop.index <= 3 %}
+                        <span style="color: {% if loop.index == 1 %}#e74c3c{% elif loop.index == 2 %}#e67e22{% else %}#2980b9{% endif %}; font-weight:700;">{{ loop.index }}</span>
+                        {% else %}
+                        {{ loop.index }}
+                        {% endif %}
+                    </td>
+                    <td class="url-cell" title="{{ r.url }}">{{ r.url }}</td>
+                    <td>{{ r.access_count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:#999; text-align:center; padding:20px;">暂无数据</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+</body>
+</html>
