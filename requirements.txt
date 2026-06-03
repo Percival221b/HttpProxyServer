@@ -13,6 +13,7 @@ python-multipart==0.0.20
 cachetools==6.1.0
 
 loguru==0.7.3
+psutil==7.0.0
 
 pytest==8.4.1
 pytest-asyncio==1.1.0
