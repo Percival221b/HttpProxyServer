@@ -139,6 +139,98 @@ HIT
 
 ---
 
+## 访问控制模块 (Security) ✅ 已完成
+
+Security 模块在代理请求处理流水线中作为**第一道关卡**，负责拦截或放行请求。
+
+### 模块结构
+
+```
+security/
+├── __init__.py           # 包导出 + 全局单例
+├── pattern_engine.py     # 模式匹配引擎（核心算法）
+├── base_list.py          # 抽象基类（文件I/O、热加载、CRUD）
+├── blacklist.py          # 黑名单管理器
+├── whitelist.py          # 白名单管理器
+└── access_control.py     # 组合访问控制（主入口）
+```
+
+### 决策优先级
+
+1. **黑名单优先** — 命中黑名单 → 直接拒绝
+2. **白名单检查** — 白名单非空且不匹配 → 拒绝
+3. **默认放行** — 两个列表都为空时允许所有请求
+
+### 支持的匹配模式
+
+| 类型 | 示例 | 匹配效果 |
+|------|------|---------|
+| 精确域名 | `ads.example.com` | 精确匹配该域名 |
+| 精确路径 | `example.com/special/path` | 精确匹配域名+路径 |
+| 子域名通配 | `*.evil.com` | 匹配 `sub.evil.com`，不匹配 `evil.com` 本身 |
+| 路径通配 | `example.com/ads/*` | 匹配该路径下所有子路径 |
+| 正则表达式 | `/^.*\\.spam\\.com/` | 自定义正则匹配 |
+
+### 配置文件
+
+- `config/blacklist.txt` — 黑名单规则（一行一条）
+- `config/whitelist.txt` — 白名单规则（一行一条）
+
+文件格式：
+
+```
+# 注释行以 # 开头
+# 精确域名
+ads.example.com
+
+# 子域名通配
+*.evil.com
+
+# 路径通配
+example.com/ads/*
+
+# 正则表达式
+/^.*\.adserver\d*\.com$/
+```
+
+### 代理服务器集成
+
+```python
+from security import AccessControl
+
+ac = AccessControl()
+await ac.load_rules()  # 启动时从文件加载
+
+# 每个请求到达时调用
+decision = await ac.check("http://example.com/path", client_ip="1.2.3.4")
+if not decision.allowed:
+    return Response(403, body=decision.reason)
+# decision.allowed = True/False
+# decision.reason = 人类可读的拒绝原因
+# decision.matched_rule = 匹配到的规则
+# decision.rule_type = "blacklist" / "whitelist" / "default"
+```
+
+### Dashboard API 接口（预留）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/security/status` | 获取黑白名单状态和规则列表 |
+| POST | `/api/security/blacklist` | 添加黑名单规则 |
+| DELETE | `/api/security/blacklist` | 删除黑名单规则 |
+| POST | `/api/security/whitelist` | 添加白名单规则 |
+| DELETE | `/api/security/whitelist` | 删除白名单规则 |
+| POST | `/api/security/reload` | 热加载（从文件重新读取） |
+
+### 运行测试
+
+```bash
+pytest tests/test_security.py -v
+# 75 tests passed
+```
+
+---
+
 ## 小组成员分工
 
 成员A：代理核心模块
@@ -147,6 +239,6 @@ HIT
 
 成员C：日志与统计模块
 
-成员D：访问控制模块
+成员D：访问控制模块 ✅
 
 成员E：Dashboard与数据库模块
