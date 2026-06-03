@@ -1,0 +1,27 @@
+# ===========================================
+# 黑名单配置文件
+#
+# 匹配这些规则的 URL 将被代理服务器拒绝访问。
+# 支持以下格式：
+#   - 精确域名: example.com
+#   - 子域名通配: *.example.com
+#   - 路径通配: example.com/ads/*
+#   - 正则表达式: /pattern/
+#   - 注释行以 # 开头
+# ===========================================
+
+# --- 广告 / 追踪域名示例 ---
+# ads.doubleclick.net
+# *.doubleclick.net
+# tracker.example.com/collect/*
+
+# --- 恶意网站示例 ---
+# evil-phishing-site.com
+# *.malware-domain.org
+
+# --- 正则表达式示例 ---
+# /^.*\.adserver\d*\.com$/
+
+# --- 当前黑名单为空，按需添加规则 ---
+# 每行一条规则，保存文件后通过 Dashboard 的 "热加载" 按钮生效
+# 或重启代理服务器自动加载
