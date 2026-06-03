@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统概览 - HTTP代理缓存服务器</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 220px; background: #1a1a2e; color: #eee; padding: 20px 0;
+            display: flex; flex-direction: column; position: fixed; height: 100vh;
+        }
+        .sidebar h2 { padding: 0 20px 20px; font-size: 18px; border-bottom: 1px solid #333; margin-bottom: 10px; }
+        .sidebar a {
+            display: block; padding: 12px 20px; color: #aaa; text-decoration: none;
+            font-size: 14px; transition: all 0.2s;
+        }
+        .sidebar a:hover, .sidebar a.active { color: #fff; background: #16213e; border-left: 3px solid #4ea8de; }
+        .main { margin-left: 220px; flex: 1; padding: 30px; }
+        h1 { font-size: 24px; margin-bottom: 24px; color: #1a1a2e; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin-bottom: 30px; }
+        .card {
+            background: #fff; border-radius: 8px; padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+        .card .label { font-size: 13px; color: #888; margin-bottom: 8px; }
+        .card .value { font-size: 28px; font-weight: 700; color: #1a1a2e; }
+        .card .value.green { color: #27ae60; }
+        .card .value.blue { color: #2980b9; }
+        .card .value.orange { color: #e67e22; }
+        .section {
+            background: #fff; border-radius: 8px; padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 20px;
+        }
+        .section h3 { font-size: 16px; margin-bottom: 15px; color: #333; border-bottom: 2px solid #4ea8de; padding-bottom: 8px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { background: #f7f8fa; padding: 10px 12px; text-align: left; font-weight: 600; color: #555; border-bottom: 2px solid #e8e8e8; }
+        td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
+        tr:hover { background: #fafbfc; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        .badge-hit { background: #d4edda; color: #155724; }
+        .badge-miss { background: #f8d7da; color: #721c24; }
+        .badge-get { background: #cce5ff; color: #004085; }
+        .badge-post { background: #fff3cd; color: #856404; }
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .status-dot.green { background: #27ae60; }
+        .progress-bar {
+            height: 10px; background: #e9ecef; border-radius: 5px; overflow: hidden; margin-top: 8px;
+        }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #4ea8de, #5b86e5); border-radius: 5px; transition: width 0.3s; }
+        .text-muted { color: #999; font-size: 12px; }
+        .url-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    </style>
+</head>
+<body>
+<div class="sidebar">
+    <h2>代理服务器管理</h2>
+    <a href="/dashboard/" class="active">系统概览</a>
+    <a href="/dashboard/logs">访问日志</a>
+    <a href="/dashboard/stats">统计分析</a>
+</div>
+<div class="main">
+    <h1>系统概览</h1>
+
+    <div class="cards">
+        <div class="card">
+            <div class="label">总访问次数</div>
+            <div class="value blue">{{ stats.total_requests }}</div>
+        </div>
+        <div class="card">
+            <div class="label">缓存命中次数</div>
+            <div class="value green">{{ stats.cache_hits }}</div>
+        </div>
+        <div class="card">
+            <div class="label">缓存命中率</div>
+            <div class="value {% if stats.hit_rate >= 50 %}green{% else %}orange{% endif %}">{{ stats.hit_rate }}%</div>
+            <div class="progress-bar"><div class="progress-fill" style="width: {{ stats.hit_rate }}%"></div></div>
+        </div>
+        <div class="card">
+            <div class="label">缓存资源数量</div>
+            <div class="value">{{ stats.cached_resources }}</div>
+        </div>
+        <div class="card">
+            <div class="label">代理服务地址</div>
+            <div class="value" style="font-size:18px;">{{ proxy_host }}:{{ proxy_port }}</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>系统状态</h3>
+        <table>
+            <tr>
+                <td style="width: 160px;"><span class="status-dot green"></span> 数据库连接</td>
+                <td>正常</td>
+                <td class="text-muted">{{ stats.total_requests }} 条日志记录</td>
+            </tr>
+            <tr>
+                <td><span class="status-dot green"></span> 缓存系统</td>
+                <td>正常</td>
+                <td class="text-muted">{{ cache_count }} 条缓存，共 {{ "%.1f"|format(stats.total_cache_size / 1024) if stats.total_cache_size > 0 else 0 }} KB</td>
+            </tr>
+            <tr>
+                <td><span class="status-dot green"></span> 代理服务</td>
+                <td>运行中</td>
+                <td class="text-muted">{{ proxy_host }}:{{ proxy_port }}</td>
+            </tr>
+        </table>
+    </div>
+
+    {% if methods %}
+    <div class="section">
+        <h3>请求方法分布</h3>
+        <table>
+            <thead><tr><th>方法</th><th>请求次数</th></tr></thead>
+            <tbody>
+                {% for m in methods %}
+                <tr>
+                    <td><span class="badge badge-get">{{ m.method }}</span></td>
+                    <td>{{ m.count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <div class="section">
+        <h3>最近访问记录</h3>
+        {% if recent_logs %}
+        <table>
+            <thead><tr><th>时间</th><th>客户端IP</th><th>方法</th><th>目标地址</th><th>状态码</th><th>缓存</th></tr></thead>
+            <tbody>
+                {% for log in recent_logs %}
+                <tr>
+                    <td style="white-space:nowrap;">{{ log.access_time }}</td>
+                    <td>{{ log.client_ip }}</td>
+                    <td><span class="badge badge-get">{{ log.method }}</span></td>
+                    <td class="url-cell" title="{{ log.target_url }}">{{ log.target_url }}</td>
+                    <td>{{ log.status_code }}</td>
+                    <td>
+                        {% if log.cache_hit %}
+                        <span class="badge badge-hit">HIT</span>
+                        {% else %}
+                        <span class="badge badge-miss">MISS</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted">暂无访问记录</p>
+        {% endif %}
+    </div>
+
+    {% if top_resources %}
+    <div class="section">
+        <h3>热门资源 TOP10</h3>
+        <table>
+            <thead><tr><th>#</th><th>URL</th><th>访问次数</th></tr></thead>
+            <tbody>
+                {% for r in top_resources %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td class="url-cell" title="{{ r.url }}">{{ r.url }}</td>
+                    <td>{{ r.access_count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+</body>
+</html>

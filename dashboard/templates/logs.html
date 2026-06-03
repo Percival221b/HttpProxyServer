@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>访问日志 - HTTP代理缓存服务器</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 220px; background: #1a1a2e; color: #eee; padding: 20px 0;
+            display: flex; flex-direction: column; position: fixed; height: 100vh;
+        }
+        .sidebar h2 { padding: 0 20px 20px; font-size: 18px; border-bottom: 1px solid #333; margin-bottom: 10px; }
+        .sidebar a {
+            display: block; padding: 12px 20px; color: #aaa; text-decoration: none;
+            font-size: 14px; transition: all 0.2s;
+        }
+        .sidebar a:hover, .sidebar a.active { color: #fff; background: #16213e; border-left: 3px solid #4ea8de; }
+        .main { margin-left: 220px; flex: 1; padding: 30px; }
+        h1 { font-size: 24px; margin-bottom: 8px; color: #1a1a2e; }
+        .info-bar { font-size: 13px; color: #888; margin-bottom: 20px; }
+        .section {
+            background: #fff; border-radius: 8px; padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 20px;
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { background: #f7f8fa; padding: 10px 12px; text-align: left; font-weight: 600; color: #555; border-bottom: 2px solid #e8e8e8; }
+        td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
+        tr:hover { background: #fafbfc; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        .badge-hit { background: #d4edda; color: #155724; }
+        .badge-miss { background: #f8d7da; color: #721c24; }
+        .badge-get { background: #cce5ff; color: #004085; }
+        .badge-post { background: #fff3cd; color: #856404; }
+        .url-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pagination { display: flex; gap: 8px; align-items: center; margin-top: 16px; font-size: 14px; }
+        .pagination a {
+            display: inline-block; padding: 6px 14px; border: 1px solid #ddd;
+            border-radius: 4px; color: #2980b9; text-decoration: none; transition: all 0.2s;
+        }
+        .pagination a:hover { background: #2980b9; color: #fff; border-color: #2980b9; }
+        .pagination a.disabled { color: #ccc; pointer-events: none; border-color: #eee; }
+        .pagination .current { padding: 6px 14px; background: #2980b9; color: #fff; border-radius: 4px; }
+        .pagination .info { color: #888; margin: 0 8px; }
+        .status-ok { color: #27ae60; }
+        .status-err { color: #e74c3c; }
+    </style>
+</head>
+<body>
+<div class="sidebar">
+    <h2>代理服务器管理</h2>
+    <a href="/dashboard/">系统概览</a>
+    <a href="/dashboard/logs" class="active">访问日志</a>
+    <a href="/dashboard/stats">统计分析</a>
+</div>
+<div class="main">
+    <h1>访问日志</h1>
+    <p class="info-bar">共 {{ total }} 条记录 | 每页 {{ limit }} 条 | 第 {{ page }} / {{ total_pages }} 页</p>
+
+    <div class="section">
+        {% if logs %}
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>访问时间</th>
+                    <th>客户端IP</th>
+                    <th>方法</th>
+                    <th>目标地址</th>
+                    <th>状态码</th>
+                    <th>缓存</th>
+                    <th>大小</th>
+                    <th>耗时(ms)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td>{{ log.id }}</td>
+                    <td style="white-space:nowrap;">{{ log.access_time }}</td>
+                    <td>{{ log.client_ip }}</td>
+                    <td>
+                        {% if log.method == 'GET' %}
+                        <span class="badge badge-get">{{ log.method }}</span>
+                        {% elif log.method == 'POST' %}
+                        <span class="badge badge-post">{{ log.method }}</span>
+                        {% else %}
+                        {{ log.method }}
+                        {% endif %}
+                    </td>
+                    <td class="url-cell" title="{{ log.target_url }}">{{ log.target_url }}</td>
+                    <td>
+                        {% if log.status_code < 400 %}
+                        <span class="status-ok">{{ log.status_code }}</span>
+                        {% else %}
+                        <span class="status-err">{{ log.status_code }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if log.cache_hit %}
+                        <span class="badge badge-hit">HIT</span>
+                        {% else %}
+                        <span class="badge badge-miss">MISS</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ (log.response_size / 1024)|round(1) if log.response_size > 0 else 0 }} KB</td>
+                    <td>{{ log.duration_ms }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:#999; text-align:center; padding:40px;">暂无访问记录</p>
+        {% endif %}
+
+        <div class="pagination">
+            {% if page > 1 %}
+            <a href="/dashboard/logs?page={{ page - 1 }}&limit={{ limit }}">上一页</a>
+            {% else %}
+            <a class="disabled">上一页</a>
+            {% endif %}
+
+            {% for p in range(1, total_pages + 1) %}
+                {% if p == page %}
+                <span class="current">{{ p }}</span>
+                {% elif p <= 3 or p > total_pages - 3 or (p >= page - 1 and p <= page + 1) %}
+                <a href="/dashboard/logs?page={{ p }}&limit={{ limit }}">{{ p }}</a>
+                {% elif p == 4 or p == total_pages - 3 %}
+                <span class="info">...</span>
+                {% endif %}
+            {% endfor %}
+
+            {% if page < total_pages %}
+            <a href="/dashboard/logs?page={{ page + 1 }}&limit={{ limit }}">下一页</a>
+            {% else %}
+            <a class="disabled">下一页</a>
+            {% endif %}
+
+            <span class="info">共 {{ total_pages }} 页</span>
+        </div>
+    </div>
+</div>
+</body>
+</html>
