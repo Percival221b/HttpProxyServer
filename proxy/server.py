@@ -12,6 +12,7 @@ from database.database import init_db, insert_access_log, insert_cache_record
 from logger import AccessLogger
 from proxy.connect_tunnel import ConnectTunnel
 from proxy.forwarder import HOP_BY_HOP_HEADERS, HTTPForwarder
+from proxy.header_modifier import get_header_modifier
 from proxy.parser import HTTPParseError, ProxyRequest, read_http_request
 from security import get_access_control
 
@@ -29,6 +30,7 @@ class ProxyServer:
         self.port = port
         self.cache = cache_manager or get_cache_manager()
         self.forwarder = HTTPForwarder()
+        self.header_modifier = get_header_modifier()
         self.tunnel = ConnectTunnel()
         self.access_control = get_access_control()
         self.access_logger = AccessLogger(settings.ACCESS_LOG_PATH)
@@ -77,6 +79,13 @@ class ProxyServer:
             method = request.method.upper()
             target_url = request.url
 
+            if self._is_self_request(request):
+                status_code = 200
+                body = self._proxy_info_page()
+                response_size = len(body)
+                await self._send_simple_response(writer, status_code, "OK", body, content_type="text/html; charset=utf-8")
+                return
+
             allowed, reason = await self._is_allowed(request, client_ip)
             if not allowed:
                 status_code = 403
@@ -89,6 +98,8 @@ class ProxyServer:
                 status_code = 200
                 response_size = await self.tunnel.open(request.host, request.port, reader, writer)
                 return
+
+            request.headers = self.header_modifier.apply(request.headers)
 
             if method == "GET":
                 decision = await self.cache.get(target_url)
@@ -106,7 +117,7 @@ class ProxyServer:
             writer.write(upstream.raw)
             await writer.drain()
 
-            if self._is_cacheable(method, status_code, upstream.headers):
+            if self._is_cacheable(method, status_code, upstream.headers, target_url):
                 await self.cache.put(
                     target_url,
                     content=upstream.body,
@@ -207,16 +218,92 @@ class ProxyServer:
                 duration_ms=duration_ms,
             )
 
+    def _is_self_request(self, request: ProxyRequest) -> bool:
+        host = request.host.lower()
+        local_hosts = {
+            "127.0.0.1",
+            "localhost",
+            "::1",
+            self.host.lower(),
+        }
+        return host in local_hosts and request.port == self.port
+
     @staticmethod
-    def _is_cacheable(method: str, status_code: int, headers: dict[str, str]) -> bool:
+    def _proxy_info_page() -> bytes:
+        return (
+            "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
+            "<title>HTTP Proxy Server</title>"
+            "<style>body{font-family:Arial,'Microsoft YaHei',sans-serif;max-width:760px;"
+            "margin:48px auto;line-height:1.7;color:#1f2937}"
+            "code{background:#f3f4f6;padding:2px 6px;border-radius:4px}</style>"
+            "</head><body>"
+            "<h1>HTTP Proxy Server 正在运行</h1>"
+            "<p>这个端口是代理服务端口，不是网站页面端口。请不要直接把浏览器打开到 "
+            "<code>http://127.0.0.1:8080/</code>。</p>"
+            "<p>Dashboard 地址：<code>http://127.0.0.1:8000/dashboard/</code></p>"
+            "<p>通过代理测试 HouseRent：配置浏览器 HTTP 代理为 "
+            "<code>127.0.0.1:8080</code>，然后访问 HouseRent 的实际地址，例如 "
+            "<code>http://192.168.1.5:5000/</code>。</p>"
+            "</body></html>"
+        ).encode("utf-8")
+
+    @staticmethod
+    def _is_cacheable(
+        method: str,
+        status_code: int,
+        headers: dict[str, str],
+        url: str = "",
+    ) -> bool:
         if method.upper() != "GET" or status_code != 200:
             return False
         cache_control = headers.get("cache-control", "").lower()
         pragma = headers.get("pragma", "").lower()
+        is_static_asset = ProxyServer._is_static_asset(url, headers)
+
+        if "no-store" in cache_control:
+            return False
+
+        if is_static_asset:
+            return True
+
         return (
-            "no-store" not in cache_control
-            and "no-cache" not in cache_control
+            "no-cache" not in cache_control
+            and "private" not in cache_control
             and pragma != "no-cache"
+            and "set-cookie" not in headers
+        )
+
+    @staticmethod
+    def _is_static_asset(url: str, headers: dict[str, str]) -> bool:
+        from urllib.parse import urlsplit
+
+        content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type.startswith(("image/", "font/")):
+            return True
+        if content_type in {
+            "text/css",
+            "application/javascript",
+            "text/javascript",
+            "application/x-javascript",
+        }:
+            return True
+
+        path = urlsplit(url).path.lower()
+        return path.endswith(
+            (
+                ".css",
+                ".js",
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".gif",
+                ".webp",
+                ".svg",
+                ".ico",
+                ".woff",
+                ".woff2",
+                ".ttf",
+            )
         )
 
     def _build_cached_response(self, entry: CacheEntry) -> bytes:
@@ -262,10 +349,11 @@ class ProxyServer:
         status_code: int,
         reason: str,
         body: bytes,
+        content_type: str = "text/plain; charset=utf-8",
     ) -> None:
         response = (
             f"HTTP/1.1 {status_code} {reason}\r\n"
-            "Content-Type: text/plain; charset=utf-8\r\n"
+            f"Content-Type: {content_type}\r\n"
             f"Content-Length: {len(body)}\r\n"
             "Connection: close\r\n"
             "\r\n"

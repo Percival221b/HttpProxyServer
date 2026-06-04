@@ -11,6 +11,7 @@ from database.database import (
     get_cache_count,
 )
 from config.settings import PROXY_HOST, PROXY_PORT, DASHBOARD_PORT
+from proxy.header_modifier import get_header_modifier
 from security import get_access_control
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -200,3 +201,29 @@ async def api_reload_security_rules():
     access_control = get_access_control()
     await access_control.reload()
     return {"ok": True, "status": access_control.get_status()}
+
+
+@router.get("/api/headers/rules", response_class=JSONResponse)
+async def api_header_rules():
+    """获取请求头改写规则"""
+    return get_header_modifier().get_rules()
+
+
+@router.put("/api/headers/rules", response_class=JSONResponse)
+async def api_update_header_rules(rules: dict = Body(...)):
+    """替换请求头改写规则"""
+    header_modifier = get_header_modifier()
+    return {"ok": True, "rules": header_modifier.save(rules)}
+
+
+@router.post("/api/headers/reload", response_class=JSONResponse)
+async def api_reload_header_rules():
+    """从配置文件重新读取请求头改写规则"""
+    return {"ok": True, "rules": get_header_modifier().load()}
+
+
+@router.post("/api/headers/profile", response_class=JSONResponse)
+async def api_set_header_profile(profile: str = Body(..., embed=True)):
+    """切换模拟客户端档案，例如 tenant / landlord / admin"""
+    header_modifier = get_header_modifier()
+    return {"ok": True, "rules": header_modifier.set_active_profile(profile)}

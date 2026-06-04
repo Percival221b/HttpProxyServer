@@ -60,6 +60,10 @@ WHITELIST_PATH = os.environ.get(
     "WHITELIST_PATH",
     str(BASE_DIR / "config" / "whitelist.txt"),
 )
+HEADER_RULES_PATH = os.environ.get(
+    "HEADER_RULES_PATH",
+    str(BASE_DIR / "config" / "header_rules.json"),
+)
 
 BLACKLIST_ENABLED = _get_bool_env("BLACKLIST_ENABLED", True)
 WHITELIST_ENABLED = _get_bool_env("WHITELIST_ENABLED", True)
