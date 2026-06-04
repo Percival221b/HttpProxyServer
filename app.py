@@ -13,7 +13,8 @@ import uvicorn
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
-from config.settings import DASHBOARD_HOST, DASHBOARD_PORT
+from config.settings import DASHBOARD_HOST, DASHBOARD_PORT, PROXY_HOST, PROXY_PORT
+from proxy import ProxyServer
 
 
 @asynccontextmanager
@@ -21,9 +22,16 @@ async def lifespan(app: FastAPI):
     from database.database import init_db
 
     await init_db()
+    proxy_server = ProxyServer(host=PROXY_HOST, port=PROXY_PORT)
+    await proxy_server.start()
+    app.state.proxy_server = proxy_server
     print(f"数据库已初始化")
+    print(f"HTTP代理启动: http://{PROXY_HOST}:{PROXY_PORT}")
     print(f"Dashboard 启动: http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
-    yield
+    try:
+        yield
+    finally:
+        await proxy_server.stop()
 
 
 app = FastAPI(

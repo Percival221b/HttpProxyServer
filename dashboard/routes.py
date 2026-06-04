@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, Body, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from pathlib import Path
 
@@ -11,6 +11,7 @@ from database.database import (
     get_cache_count,
 )
 from config.settings import PROXY_HOST, PROXY_PORT, DASHBOARD_PORT
+from security import get_access_control
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -149,3 +150,53 @@ async def api_health():
             "db_connected": False,
             "error": str(e),
         }
+
+
+@router.get("/api/security/status", response_class=JSONResponse)
+async def api_security_status():
+    """获取黑名单/白名单状态"""
+    return get_access_control().get_status()
+
+
+@router.post("/api/security/blacklist", response_class=JSONResponse)
+async def api_add_blacklist_rule(pattern: str = Body(..., embed=True)):
+    """添加黑名单规则"""
+    access_control = get_access_control()
+    added = await access_control.add_blacklist_rule(pattern)
+    await access_control.save_rules()
+    return {"ok": added, "status": access_control.get_status()}
+
+
+@router.delete("/api/security/blacklist", response_class=JSONResponse)
+async def api_remove_blacklist_rule(pattern: str = Query(...)):
+    """删除黑名单规则"""
+    access_control = get_access_control()
+    removed = await access_control.remove_blacklist_rule(pattern)
+    await access_control.save_rules()
+    return {"ok": removed, "status": access_control.get_status()}
+
+
+@router.post("/api/security/whitelist", response_class=JSONResponse)
+async def api_add_whitelist_rule(pattern: str = Body(..., embed=True)):
+    """添加白名单规则"""
+    access_control = get_access_control()
+    added = await access_control.add_whitelist_rule(pattern)
+    await access_control.save_rules()
+    return {"ok": added, "status": access_control.get_status()}
+
+
+@router.delete("/api/security/whitelist", response_class=JSONResponse)
+async def api_remove_whitelist_rule(pattern: str = Query(...)):
+    """删除白名单规则"""
+    access_control = get_access_control()
+    removed = await access_control.remove_whitelist_rule(pattern)
+    await access_control.save_rules()
+    return {"ok": removed, "status": access_control.get_status()}
+
+
+@router.post("/api/security/reload", response_class=JSONResponse)
+async def api_reload_security_rules():
+    """从配置文件热加载黑名单/白名单规则"""
+    access_control = get_access_control()
+    await access_control.reload()
+    return {"ok": True, "status": access_control.get_status()}
