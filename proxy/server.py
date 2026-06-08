@@ -17,6 +17,15 @@ from proxy.parser import HTTPParseError, ProxyRequest, read_http_request
 from security import get_access_control
 
 
+CONDITIONAL_REQUEST_HEADERS = {
+    "if-match",
+    "if-none-match",
+    "if-modified-since",
+    "if-unmodified-since",
+    "if-range",
+}
+
+
 class ProxyServer:
     """Main proxy server that coordinates parsing, security, cache and forwarding."""
 
@@ -84,6 +93,7 @@ class ProxyServer:
                 body = self._proxy_info_page()
                 response_size = len(body)
                 await self._send_simple_response(writer, status_code, "OK", body, content_type="text/html; charset=utf-8")
+                request = None
                 return
 
             allowed, reason = await self._is_allowed(request, client_ip)
@@ -101,23 +111,38 @@ class ProxyServer:
 
             request.headers = self.header_modifier.apply(request.headers)
 
-            if method == "GET":
+            if self._can_read_from_cache(method, target_url, request.headers):
                 decision = await self.cache.get(target_url)
                 if decision.hit and decision.entry is not None:
                     cache_hit = True
                     status_code = decision.entry.status_code
-                    response_size = decision.entry.size
-                    writer.write(self._build_cached_response(decision.entry))
+                    response_size = 0 if method == "HEAD" else decision.entry.size
+                    writer.write(
+                        self._build_cached_response(
+                            decision.entry,
+                            include_body=(method != "HEAD"),
+                        )
+                    )
                     await writer.drain()
                     return
+
+            if method == "GET":
+                self._prepare_cache_miss_request(request)
 
             upstream = await self.forwarder.forward(request)
             status_code = upstream.status_code
             response_size = upstream.body_size
-            writer.write(upstream.raw)
+            writer.write(
+                self._add_response_headers(
+                    upstream.raw,
+                    {
+                        "X-Proxy-Cache": "MISS" if method == "GET" else "BYPASS",
+                    },
+                )
+            )
             await writer.drain()
 
-            if self._is_cacheable(method, status_code, upstream.headers, target_url):
+            if self._is_cacheable(method, status_code, upstream.headers, target_url, request.headers):
                 await self.cache.put(
                     target_url,
                     content=upstream.body,
@@ -248,11 +273,20 @@ class ProxyServer:
         ).encode("utf-8")
 
     @staticmethod
+    def _can_read_from_cache(method: str, url: str, request_headers: dict[str, str]) -> bool:
+        if method.upper() not in {"GET", "HEAD"}:
+            return False
+        if ProxyServer._is_static_asset(url, request_headers):
+            return True
+        return not ProxyServer._has_user_specific_request_headers(request_headers)
+
+    @staticmethod
     def _is_cacheable(
         method: str,
         status_code: int,
         headers: dict[str, str],
         url: str = "",
+        request_headers: dict[str, str] | None = None,
     ) -> bool:
         if method.upper() != "GET" or status_code != 200:
             return False
@@ -266,12 +300,19 @@ class ProxyServer:
         if is_static_asset:
             return True
 
+        if request_headers and ProxyServer._has_user_specific_request_headers(request_headers):
+            return False
+
         return (
             "no-cache" not in cache_control
             and "private" not in cache_control
             and pragma != "no-cache"
             and "set-cookie" not in headers
         )
+
+    @staticmethod
+    def _has_user_specific_request_headers(headers: dict[str, str]) -> bool:
+        return bool(headers.get("cookie") or headers.get("authorization"))
 
     @staticmethod
     def _is_static_asset(url: str, headers: dict[str, str]) -> bool:
@@ -306,7 +347,15 @@ class ProxyServer:
             )
         )
 
-    def _build_cached_response(self, entry: CacheEntry) -> bytes:
+    @staticmethod
+    def _prepare_cache_miss_request(request: ProxyRequest) -> None:
+        if not ProxyServer._is_static_asset(request.url, request.headers):
+            return
+
+        for name in CONDITIONAL_REQUEST_HEADERS:
+            request.headers.pop(name, None)
+
+    def _build_cached_response(self, entry: CacheEntry, include_body: bool = True) -> bytes:
         reason = self._reason_phrase(entry.status_code)
         lines = [f"HTTP/1.1 {entry.status_code} {reason}"]
         has_transfer_encoding = False
@@ -325,7 +374,31 @@ class ProxyServer:
         if not has_transfer_encoding:
             lines.append(f"Content-Length: {len(entry.content)}")
         lines.append("Connection: close")
-        return ("\r\n".join(lines) + "\r\n\r\n").encode("iso-8859-1") + entry.content
+        lines.append("X-Proxy-Cache: HIT")
+        body = entry.content if include_body else b""
+        return ("\r\n".join(lines) + "\r\n\r\n").encode("iso-8859-1") + body
+
+    @staticmethod
+    def _add_response_headers(raw: bytes, headers: dict[str, str]) -> bytes:
+        head, separator, body = raw.partition(b"\r\n\r\n")
+        if not separator:
+            return raw
+
+        existing = head.decode("iso-8859-1", errors="replace").split("\r\n")
+        filtered = []
+        injected_names = {name.lower() for name in headers}
+        for line in existing:
+            if ":" not in line:
+                filtered.append(line)
+                continue
+            name, _ = line.split(":", 1)
+            if name.strip().lower() not in injected_names:
+                filtered.append(line)
+
+        for name, value in headers.items():
+            filtered.append(f"{name}: {value}")
+
+        return ("\r\n".join(filtered) + "\r\n\r\n").encode("iso-8859-1") + body
 
     @staticmethod
     def _reason_phrase(status_code: int) -> str:

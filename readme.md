@@ -4,6 +4,29 @@
 
 本项目实现一个支持缓存机制的 HTTP 代理服务器。
 
+  - 代理服务器访问指定网站资源：由 proxy/server.py 监听客户端连接，解析目标 URL 后转发到上游网站，再把响应返回给客户端。
+  - HTTP 请求接收、解析、转发与响应回传：proxy/parser.py 负责解析请求，proxy/forwarder.py 负责向上游发起请求并读取响应，
+    proxy/server.py 负责回传给客户端。
+
+  - 常见网页资源缓存：cache/ 模块负责内存缓存与 TTL 管理，代理对 GET 的图片、CSS、JS 等静态资源优先查缓存，命中则直接返
+    回。
+
+  - 基本日志记录：logger/access_logger.py 记录访问时间、目标地址、请求方法、状态码、缓存命中情况、耗时等信息。
+  - 并发连接支持：代理基于 asyncio.start_server 和异步协程处理多个客户端连接，支持同时并发访问。
+  - 缓存失效与更新：cache/cache_manager.py 实现 TTL 过期、LRU 淘汰和按需清理，资源过期后会自动失效并重新获取。
+  - 黑名单/白名单访问控制：security/blacklist.py、security/whitelist.py 和 security/access_control.py 提供 URL 规则拦截
+    与放行控制。
+
+  - 管理界面和统计功能：dashboard/routes.py 提供统计、日志、健康检查、缓存状态、热门资源等接口，前端页面展示访问次数、命
+    中率等信息。
+
+  - HTTPS CONNECT 隧道转发：proxy/connect_tunnel.py 处理 CONNECT 请求，建立 TCP 隧道，实现 HTTPS 代理的基本转发能力。
+  - 请求头修改功能：proxy/header_modifier.py 支持添加、删除、切换请求头规则；代理在转发前会应用这些规则，适合模拟不同客
+    户端访问。
+
+
+
+
 客户端通过代理服务器访问目标网站时：
 
 1. 请求首先到达代理服务器

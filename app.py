@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import uvicorn
 from fastapi import FastAPI
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from config.settings import DASHBOARD_HOST, DASHBOARD_PORT, PROXY_HOST, PROXY_PORT
 from proxy import ProxyServer
@@ -46,11 +46,27 @@ from dashboard.routes import router as dashboard_router
 app.include_router(dashboard_router)
 
 
+async def _reload_security_rules() -> dict:
+    from cache import get_cache_manager
+    from security import get_access_control
+
+    access_control = get_access_control()
+    await access_control.reload()
+    with suppress(Exception):
+        await get_cache_manager().clear()
+    return {"ok": True, "status": access_control.get_status()}
+
+
 @app.get("/")
 async def root():
     from fastapi.responses import RedirectResponse
 
     return RedirectResponse(url="/dashboard/")
+
+
+@app.post("/api/security/reload")
+async def api_security_reload_alias():
+    return await _reload_security_rules()
 
 
 if __name__ == "__main__":
@@ -60,3 +76,12 @@ if __name__ == "__main__":
         port=DASHBOARD_PORT,
         reload=False,
     )
+
+
+#  演示命令：
+
+#  curl.exe -X POST "http://127.0.0.1:8000/dashboard/api/headers/profile?profile=admin"
+
+  #恢复租客视角：
+#   curl.exe -X POST "http://127.0.0.1:8000/dashboard/api/headers/profile?profile=tenant"
+

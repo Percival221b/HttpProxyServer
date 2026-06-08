@@ -38,7 +38,7 @@ DASHBOARD_PORT = int(os.environ.get("DASHBOARD_PORT", "8000"))
 # ============================================================
 # 缓存配置
 # ============================================================
-CACHE_TTL = int(os.environ.get("CACHE_TTL", "60"))
+CACHE_TTL = int(os.environ.get("CACHE_TTL", "600"))
 CACHE_MAX_SIZE = int(os.environ.get("CACHE_MAX_SIZE", "1000"))
 
 # ============================================================

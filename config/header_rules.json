@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "active_profile": "admin",
+  "set_headers": {
+    "X-Proxy-Demo": "HouseRent-Cache-Proxy"
+  },
+  "remove_headers": [
+    "X-Remove-Me"
+  ],
+  "profiles": {
+    "tenant": {
+      "X-Demo-Role": "tenant",
+      "X-Client-Type": "tenant-browser"
+    },
+    "landlord": {
+      "X-Demo-Role": "landlord",
+      "X-Client-Type": "landlord-dashboard"
+    },
+    "admin": {
+      "X-Demo-Role": "admin",
+      "X-Client-Type": "admin-console"
+    }
+  }
+}

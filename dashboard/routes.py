@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Body, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse
+from contextlib import suppress
 from pathlib import Path
 
 from database.database import (
@@ -198,8 +199,12 @@ async def api_remove_whitelist_rule(pattern: str = Query(...)):
 @router.post("/api/security/reload", response_class=JSONResponse)
 async def api_reload_security_rules():
     """从配置文件热加载黑名单/白名单规则"""
+    from cache import get_cache_manager
+
     access_control = get_access_control()
     await access_control.reload()
+    with suppress(Exception):
+        await get_cache_manager().clear()
     return {"ok": True, "status": access_control.get_status()}
 
 
@@ -223,7 +228,16 @@ async def api_reload_header_rules():
 
 
 @router.post("/api/headers/profile", response_class=JSONResponse)
-async def api_set_header_profile(profile: str = Body(..., embed=True)):
+async def api_set_header_profile(
+    profile_query: str | None = Query(None, alias="profile"),
+    payload: dict | None = Body(None),
+):
     """切换模拟客户端档案，例如 tenant / landlord / admin"""
+    profile = profile_query or (payload or {}).get("profile")
+    if not profile:
+        return JSONResponse(
+            {"ok": False, "error": "missing profile; use ?profile=admin or JSON {\"profile\":\"admin\"}"},
+            status_code=400,
+        )
     header_modifier = get_header_modifier()
     return {"ok": True, "rules": header_modifier.set_active_profile(profile)}

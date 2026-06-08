@@ -144,17 +144,16 @@ class AccessLogger:
         stats_file = self.log_file.parent / "stats.json"
         try:
             with self._lock:
-                if stats_file.exists():
+                if stats_file.exists() and stats_file.stat().st_size > 0:
                     with open(stats_file, 'r', encoding='utf-8') as f:
-                        stats = json.load(f)
+                        try:
+                            stats = json.load(f)
+                        except json.JSONDecodeError:
+                            stats = self._new_stats(timestamp)
+                        else:
+                            stats = self._normalize_stats(stats, timestamp)
                 else:
-                    stats = {
-                        "total_requests": 0,
-                        "cache_hits": 0,
-                        "cache_misses": 0,
-                        "status_codes": {},
-                        "last_update": timestamp
-                    }
+                    stats = self._new_stats(timestamp)
 
                 stats["total_requests"] += 1
                 if cache_hit:
@@ -169,6 +168,27 @@ class AccessLogger:
                     json.dump(stats, f, indent=2, ensure_ascii=False)
         except Exception as e:
             self.logger.error(f"Failed to update statistics: {e}")
+
+    @staticmethod
+    def _new_stats(timestamp: str) -> Dict[str, Any]:
+        return {
+            "total_requests": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "status_codes": {},
+            "last_update": timestamp,
+        }
+
+    @classmethod
+    def _normalize_stats(cls, stats: Any, timestamp: str) -> Dict[str, Any]:
+        if not isinstance(stats, dict):
+            return cls._new_stats(timestamp)
+
+        normalized = cls._new_stats(timestamp)
+        normalized.update(stats)
+        if not isinstance(normalized.get("status_codes"), dict):
+            normalized["status_codes"] = {}
+        return normalized
 
     def log_error(self, client_ip: str, url: str, error: str, error_type: str = "UNKNOWN"):
         """记录错误日志"""

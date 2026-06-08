@@ -25,3 +25,7 @@
 # --- 当前黑名单为空，按需添加规则 ---
 # 每行一条规则，保存文件后通过 Dashboard 的 "热加载" 按钮生效
 # 或重启代理服务器自动加载
+#Add-Content config\blacklist.txt "192.168.1.5/ads/*"
+#curl.exe -X POST http://127.0.0.1:8000/dashboard/api/security/reload
+172.20.10.6/ads/*
+
